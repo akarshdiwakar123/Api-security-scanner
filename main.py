@@ -64,19 +64,20 @@ def main():
 
     client.close()
 
-   report.save(args.output)
+    report.save(args.output)
+     
+    total, severity_count = report.summary()
 
-# Print summary
-total, severity_count = report.summary()
-
-print("\n======================")
-print("Scan Summary")
-print("======================")
-print(f"Total Findings: {total}")
-print(f"HIGH: {severity_count['HIGH']}")
-print(f"MEDIUM: {severity_count['MEDIUM']}")
-print(f"LOW: {severity_count['LOW']}")
+    print("\n======================")
+    print("Scan Summary")
+    print("======================")
+    print(f"Total Findings: {total}")
+    print(f"HIGH: {severity_count['HIGH']}")
+    print(f"MEDIUM: {severity_count['MEDIUM']}")
+    print(f"LOW: {severity_count['LOW']}")
 
 print("\nScan completed.")
+
+
 if __name__ == "__main__":
     main()
