@@ -1,6 +1,6 @@
 {
     "target": "https://jsonplaceholder.typicode.com",
-    "timestamp": "2026-02-23T17:28:39.317211",
+    "timestamp": "2026-02-23T17:17:59.819217",
     "findings": [
         {
             "type": "BOLA",

@@ -17,6 +17,22 @@ class Report:
             "description": description,
         }
         self.findings.append(finding)
+        
+    def summary(self):
+        total = len(self.findings)
+
+        severity_count = {
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0
+        }
+
+        for finding in self.findings:
+            severity = finding["severity"]
+            if severity in severity_count:
+                severity_count[severity] += 1
+
+        return total, severity_count
 
     def save(self, filename="report.json"):
         data = {
@@ -28,4 +44,4 @@ class Report:
         with open(filename, "w") as f:
             json.dump(data, f, indent=4)
 
-        print(f"[bold green]Report saved to {filename}[/bold green]")
+        
