@@ -3,6 +3,8 @@ from rich import print
 from scanner.http_client import HTTPClient
 from scanner.auth import AuthHandler
 from scanner.tests.bola import test_bola
+from scanner.tests.rate_limit import test_rate_limit
+from scanner.report import Report
 
 
 def main():
@@ -18,23 +20,25 @@ def main():
 
     print("[bold cyan]Starting API Security Scan...[/bold cyan]")
 
-    # Setup authentication
+    report = Report(target=args.url)
+
     auth = AuthHandler(args.token)
     headers = auth.get_auth_header()
 
     if args.token:
         auth.decode_jwt()
 
-    # Setup HTTP client
     client = HTTPClient(base_url=args.url, headers=headers)
 
-    # Run BOLA test if endpoint provided
     if args.endpoint:
-        test_bola(client, args.endpoint)
+        test_bola(client, args.endpoint, report)
+        test_rate_limit(client, args.endpoint, report)
     else:
         print("[yellow]No endpoint provided. Nothing to scan.[/yellow]")
 
     client.close()
+
+    report.save()
 
     print("[bold green]Scan completed.[/bold green]")
 

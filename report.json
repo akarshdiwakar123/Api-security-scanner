@@ -1,0 +1,12 @@
+{
+    "target": "https://jsonplaceholder.typicode.com",
+    "timestamp": "2026-02-23T17:06:07.678632",
+    "findings": [
+        {
+            "type": "BOLA",
+            "severity": "HIGH",
+            "endpoint": "/posts/2",
+            "description": "Unauthorized object access possible."
+        }
+    ]
+}
