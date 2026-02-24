@@ -1,18 +1,12 @@
 {
-    "target": "https://jsonplaceholder.typicode.com",
-    "timestamp": "2026-02-23T17:35:59.638427",
+    "target": "https://reqres.in",
+    "timestamp": "2026-02-24T14:22:47.359635",
     "findings": [
         {
-            "type": "BOLA",
+            "type": "SQL Injection",
             "severity": "HIGH",
-            "endpoint": "/posts/2",
-            "description": "Unauthorized object access possible."
-        },
-        {
-            "type": "No Rate Limiting",
-            "severity": "MEDIUM",
-            "endpoint": "/posts/1",
-            "description": "API did not throttle repeated rapid requests."
+            "endpoint": "/api/users/2",
+            "description": "Endpoint appears vulnerable to SQL injection payloads."
         }
     ]
 }

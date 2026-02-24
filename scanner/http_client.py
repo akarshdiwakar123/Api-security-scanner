@@ -1,21 +1,20 @@
-import httpx
+import requests
 
 
 class HTTPClient:
     def __init__(self, base_url, headers=None):
-        self.base_url = base_url.rstrip("/")
-        self.headers = headers or {}
-        self.client = httpx.Client(timeout=10)
+        self.base_url = base_url
+        self.session = requests.Session()
 
-    def get(self, endpoint, params=None):
-        url = self.base_url + endpoint
-        response = self.client.get(url, headers=self.headers, params=params)
-        return response
+        if headers:
+            self.session.headers.update(headers)
 
-    def post(self, endpoint, data=None):
-        url = self.base_url + endpoint
-        response = self.client.post(url, headers=self.headers, json=data)
-        return response
+    def get(self, endpoint):
+        try:
+            response = self.session.get(f"{self.base_url}{endpoint}")
+            return response
+        except requests.RequestException:
+            return None
 
     def close(self):
-        self.client.close()
+        self.session.close()
