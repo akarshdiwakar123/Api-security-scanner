@@ -1,12 +1,18 @@
 {
-    "target": "https://reqres.in",
-    "timestamp": "2026-02-24T14:22:47.359635",
+    "target": "https://dummyjson.com",
+    "timestamp": "2026-02-24T14:30:19.877801",
     "findings": [
         {
-            "type": "SQL Injection",
+            "type": "BOLA",
             "severity": "HIGH",
-            "endpoint": "/api/users/2",
-            "description": "Endpoint appears vulnerable to SQL injection payloads."
+            "endpoint": "/users/2",
+            "description": "Unauthorized object access possible."
+        },
+        {
+            "type": "No Rate Limiting",
+            "severity": "MEDIUM",
+            "endpoint": "/users/1",
+            "description": "API did not throttle repeated rapid requests."
         }
     ]
 }

@@ -1,4 +1,5 @@
 import argparse
+from scanner.tests.cors import test_cors
 from datetime import datetime
 from rich import print
 
@@ -63,6 +64,7 @@ def main():
         test_bola(client, args.endpoint, report)
         test_rate_limit(client, args.endpoint, report)
         test_injection(client, args.endpoint, report)
+        test_cors(client, args.endpoint, report)
     else:
         print("[yellow]No endpoint provided. Nothing to scan.[/yellow]")
 
