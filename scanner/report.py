@@ -4,6 +4,13 @@ from rich import print
 
 
 class Report:
+    
+
+    def to_json(self):
+        return json.dumps({
+        "target": self.target,
+        "findings": self.findings
+    }, indent=4)
     def __init__(self, target):
         self.target = target
         self.timestamp = datetime.utcnow().isoformat()
