@@ -16,13 +16,14 @@ class Report:
         self.timestamp = datetime.utcnow().isoformat()
         self.findings = []
 
-    def add_finding(self, vuln_type, severity, endpoint, description):
-        finding = {
-            "type": vuln_type,
-            "severity": severity,
-            "endpoint": endpoint,
-            "description": description,
-        }
+    def add_finding(self, severity=None, title=None, endpoint=None, description=None, **kwargs):
+    
+        report.add_finding(
+            severity,
+            "Vulnerability Name",
+            endpoint,
+            description
+            )
         self.findings.append(finding)
         
     def summary(self):
