@@ -1,29 +1,25 @@
 import json
 from datetime import datetime
-from rich import print
 
+try:
+    from rich import print
+except ImportError:
+    pass
 
 class Report:
-    
-
-    def to_json(self):
-        return json.dumps({
-        "target": self.target,
-        "findings": self.findings
-    }, indent=4)
     def __init__(self, target):
         self.target = target
         self.timestamp = datetime.utcnow().isoformat()
         self.findings = []
 
-    def add_finding(self, severity=None, title=None, endpoint=None, description=None, **kwargs):
-    
-        report.add_finding(
-            severity,
-            "Vulnerability Name",
-            endpoint,
-            description
-            )
+    def add_finding(self, severity, title, endpoint, description, **kwargs):
+        finding = {
+            "severity": severity,
+            "title": title,
+            "endpoint": endpoint,
+            "description": description
+        }
+        finding.update(kwargs)
         self.findings.append(finding)
         
     def summary(self):
@@ -36,11 +32,19 @@ class Report:
         }
 
         for finding in self.findings:
-            severity = finding["severity"]
+            severity = finding.get("severity", "LOW")
             if severity in severity_count:
                 severity_count[severity] += 1
+            else:
+                severity_count[severity] = 1
 
         return total, severity_count
+
+    def to_json(self):
+        return json.dumps({
+            "target": self.target,
+            "findings": self.findings
+        }, indent=4)
 
     def save(self, filename="report.json"):
         data = {
@@ -51,5 +55,3 @@ class Report:
 
         with open(filename, "w") as f:
             json.dump(data, f, indent=4)
-
-        
