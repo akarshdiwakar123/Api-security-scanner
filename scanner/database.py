@@ -9,8 +9,18 @@ logger = logging.getLogger(__name__)
 DB_PATH = "scanner_history.db"
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    email       TEXT UNIQUE NOT NULL,
+    username    TEXT UNIQUE NOT NULL,
+    hashed_pw   TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    is_active   INTEGER DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS scans (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
     target      TEXT    NOT NULL,
     endpoint    TEXT    NOT NULL,
     scanned_at  TEXT    NOT NULL,
@@ -55,7 +65,7 @@ def init_db():
     logger.info(f"Database initialized at '{DB_PATH}'")
 
 
-def save_scan(target: str, endpoint: str, findings: list) -> int:
+def save_scan(target: str, endpoint: str, findings: list, user_id: int | None = None) -> int:
     """
     Persist a completed scan and its associated findings.
     Returns the scan_id for reference.
@@ -70,10 +80,11 @@ def save_scan(target: str, endpoint: str, findings: list) -> int:
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO scans (target, endpoint, scanned_at, total, high, medium, low)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO scans (user_id, target, endpoint, scanned_at, total, high, medium, low)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                user_id,
                 target,
                 endpoint,
                 scanned_at,
@@ -147,5 +158,41 @@ def delete_scan(scan_id: int):
     logger.info(f"Scan #{scan_id} deleted.")
 
 
+# ---------------------------------------------------------------------------
+# User management
+# ---------------------------------------------------------------------------
+def create_user(email: str, username: str, hashed_pw: str) -> int:
+    """Insert a new user. Raises sqlite3.IntegrityError on duplicate email/username."""
+    created_at = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO users (email, username, hashed_pw, created_at) VALUES (?, ?, ?, ?)",
+            (email, username, hashed_pw, created_at),
+        )
+        return cursor.lastrowid
+
+
+def get_user_by_email(email: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def fetch_scans_for_user(user_id: int) -> list[dict]:
+    """Return all scans belonging to a specific user."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM scans WHERE user_id = ? ORDER BY id DESC", (user_id,)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # Auto-initialize on import
 init_db()
+
