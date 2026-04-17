@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
@@ -228,52 +228,92 @@ async def get_me(user_id: int = Depends(get_current_user_id)):
 # =============================================================================
 # SCAN ROUTES — Protected
 # =============================================================================
+class ScanQueueResponse(BaseModel):
+    message: str
+    scan_id: int
+    task_id: str
+    status: str
+
 @app.post(
     "/scan",
-    response_model=ScanResponse,
-    status_code=status.HTTP_200_OK,
+    response_model=ScanQueueResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     tags=["Scanner"],
-    summary="Run a full security scan (requires authentication)",
+    summary="Queue a full security scan (requires authentication)",
 )
 async def scan_endpoint(
     body: ScanRequest,
     user_id: int = Depends(get_current_user_id),
 ):
-    config = ScanConfig(
+    from scanner.database import get_db_session
+    from scanner.models import Scan, User
+    from scanner.worker import run_scan_task
+
+    # 1. Create a pending Scan record in the DB
+    with get_db_session() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user.subscription_status == "free" and user.api_usage_current_month >= 5:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Free tier limit reached (5 scans). Please upgrade to Pro to continue scanning."
+            )
+        
+        user.api_usage_current_month += 1
+        
+        scan = Scan(
+            user_id=user_id,
+            target=body.url,
+            endpoint=body.endpoint,
+            status="pending"
+        )
+        db.add(scan)
+        db.flush()
+        scan_id = scan.id
+
+    # 2. Fire celery task
+    task = run_scan_task.delay(
+        scan_id=scan_id,
         url=body.url,
         endpoint=body.endpoint,
         token=body.token,
         persist=body.persist,
-        user_id=user_id,
+        user_id=user_id
     )
 
-    try:
-        result: ScanResult = await run_scan(config)
-    except Exception as e:
-        logger.error(f"Scan failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Scan failed: {str(e)}",
-        )
+    # 3. Update DB with task_id
+    with get_db_session() as db:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if scan:
+            scan.task_id = task.id
 
-    return ScanResponse(
-        scan_id=result.scan_id,
-        target=result.target,
-        endpoint=result.endpoint,
-        total=result.total,
-        high=result.high,
-        medium=result.medium,
-        low=result.low,
-        findings=[
-            FindingOut(
-                severity=f.get("severity", "LOW"),
-                title=f.get("title", "Unknown"),
-                endpoint=f.get("endpoint", body.endpoint),
-                description=f.get("description", ""),
-            )
-            for f in result.findings
-        ],
+    return ScanQueueResponse(
+        message="Scan queued successfully.",
+        scan_id=scan_id,
+        task_id=task.id,
+        status="pending"
     )
+
+@app.get("/scan/status/{scan_id}", tags=["Scanner"], summary="Get scan status")
+async def get_scan_status(scan_id: int, user_id: int = Depends(get_current_user_id)):
+    from scanner.database import get_db_session
+    from scanner.models import Scan
+    with get_db_session() as db:
+        scan = db.query(Scan).filter(Scan.id == scan_id, Scan.user_id == user_id).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        
+        # Build a dict reflecting findings stats if completed
+        return {
+            "scan_id": scan.id,
+            "status": scan.status,
+            "task_id": scan.task_id,
+            "target": scan.target,
+            "endpoint": scan.endpoint,
+            "total": scan.total,
+            "high": scan.high,
+            "medium": scan.medium,
+            "low": scan.low
+        }
 
 
 @app.get("/scans", response_model=list[ScanSummary], tags=["History"], summary="Get my scans")
@@ -295,12 +335,43 @@ async def list_all_scans(_: int = Depends(get_current_user_id)):
     summary="Get vulnerability details for a scan",
 )
 async def get_scan_findings(scan_id: int, user_id: int = Depends(get_current_user_id)):
+    all_user_scans = fetch_scans_for_user(user_id)
+    if scan_id not in [s["id"] for s in all_user_scans]:
+        raise HTTPException(status_code=403, detail="You do not have access to this scan.")
+    
     vulns = fetch_vulnerabilities(scan_id)
-    if not vulns:
-        all_ids = [s["id"] for s in fetch_scans_for_user(user_id)]
-        if scan_id not in all_ids:
-            raise HTTPException(status_code=404, detail=f"Scan #{scan_id} not found for your account.")
     return vulns
+
+
+@app.get(
+    "/scans/{scan_id}/report.pdf",
+    tags=["History"],
+    summary="Download Scan Report as PDF"
+)
+async def get_scan_report_pdf(scan_id: int, user_id: int = Depends(get_current_user_id)):
+    from fastapi.responses import StreamingResponse
+    from scanner.database import get_db_session
+    from scanner.models import Scan
+    from scanner.report import Report
+    
+    all_user_scans = fetch_scans_for_user(user_id)
+    if scan_id not in [s["id"] for s in all_user_scans]:
+        raise HTTPException(status_code=403, detail="You do not have access to this scan.")
+        
+    with get_db_session() as db:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        
+    vulns = fetch_vulnerabilities(scan_id)
+    
+    report = Report(target=scan.target)
+    report.findings = vulns
+    
+    buffer = report.generate_pdf(endpoint=scan.endpoint)
+    return StreamingResponse(
+        buffer, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename=scan_{scan_id}_report.pdf"}
+    )
 
 
 @app.delete(
@@ -309,7 +380,10 @@ async def get_scan_findings(scan_id: int, user_id: int = Depends(get_current_use
     tags=["History"],
     summary="Delete a scan record",
 )
-async def remove_scan(scan_id: int, _: int = Depends(get_current_user_id)):
+async def remove_scan(scan_id: int, user_id: int = Depends(get_current_user_id)):
+    all_user_scans = fetch_scans_for_user(user_id)
+    if scan_id not in [s["id"] for s in all_user_scans]:
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this scan.")
     try:
         delete_scan(scan_id)
     except Exception as e:
@@ -317,5 +391,51 @@ async def remove_scan(scan_id: int, _: int = Depends(get_current_user_id)):
 
 
 @app.get("/vulnerabilities", response_model=list[dict], tags=["Analytics"])
-async def all_vulnerabilities(_: int = Depends(get_current_user_id)):
-    return fetch_all_vulnerabilities()
+async def all_vulnerabilities(user_id: int = Depends(get_current_user_id)):
+    return fetch_all_vulnerabilities(user_id)
+
+# =============================================================================
+# BILLING ROUTES — Public & Protected
+# =============================================================================
+@app.post("/billing/checkout", tags=["Billing"], summary="Get Stripe Checkout URL for Pro Upgrade")
+async def checkout(user_id: int = Depends(get_current_user_id)):
+    from scanner.database import get_user_by_id
+    from scanner.billing import create_checkout_session
+    user = get_user_by_id(user_id)
+    url = create_checkout_session(user_id=user_id, user_email=user["email"])
+    return {"checkout_url": url}
+
+@app.post("/billing/webhook", tags=["Billing"], summary="Stripe Webhook handler")
+async def stripe_webhook(request: Request):
+    from scanner.billing import verify_webhook_signature
+    from scanner.database import get_db_session
+    from scanner.models import User
+    
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    
+    event = verify_webhook_signature(payload, sig_header)
+    
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        client_reference_id = session.get('client_reference_id')
+        customer_id = session.get('customer')
+        
+        if client_reference_id:
+            with get_db_session() as db:
+                user = db.query(User).filter(User.id == int(client_reference_id)).first()
+                if user:
+                    user.stripe_customer_id = customer_id
+                    user.subscription_status = "pro"
+                    db.commit()
+
+    elif event['type'] == 'customer.subscription.deleted':
+        subscription = event['data']['object']
+        customer_id = subscription.get('customer')
+        with get_db_session() as db:
+            user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+            if user:
+                user.subscription_status = "free"
+                db.commit()
+                
+    return {"status": "success"}

@@ -1,0 +1,61 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: scanner_user
+      POSTGRES_PASSWORD: scanner_password
+      POSTGRES_DB: scanner_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://scanner_user:scanner_password@db:5432/scanner_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - STRIPE_SECRET_KEY=sk_test_mock_key
+      - STRIPE_WEBHOOK_SECRET=whsec_mock_key
+    depends_on:
+      - db
+      - redis
+    restart: on-failure
+    command: >
+      bash -c "sleep 3 && python -m alembic upgrade head && uvicorn api:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      - DATABASE_URL=postgresql://scanner_user:scanner_password@db:5432/scanner_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    command: ["celery", "-A", "scanner.worker.celery_app", "worker", "--loglevel=info"]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    ports:
+      - "80:80"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

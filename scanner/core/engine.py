@@ -25,8 +25,9 @@ class ScanConfig:
     url: str
     endpoint: str
     token: str | None = None
-    persist: bool = True          # Save to SQLite after scan
+    persist: bool = True          # Save to SQLite/Postgres after scan
     user_id: int | None = None    # Authenticated user (None = anonymous / CLI)
+    scan_id: int | None = None    # Pass existing scan_id if already queued
 
 
 @dataclass
@@ -68,10 +69,10 @@ async def run_scan(config: ScanConfig) -> ScanResult:
 
     total, severity_count = report.summary()
 
-    scan_id = None
+    scan_id = config.scan_id
     if config.persist:
         try:
-            scan_id = save_scan(config.url, config.endpoint, report.findings, user_id=config.user_id)
+            scan_id = save_scan(config.url, config.endpoint, report.findings, user_id=config.user_id, scan_id=config.scan_id)
         except Exception as e:
             logger.error(f"Failed to persist scan to DB: {e}")
 
